@@ -77,7 +77,17 @@ function createWindow(): BrowserWindow {
   return win
 }
 
+// One copy at a time: opening the app again just brings the window forward.
+// (The lock lives in the data folder, so test copies using MNP_USER_DATA can still run.)
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', showWindow)
+}
+
 app.whenReady().then(() => {
+  if (!gotLock) return
   installBinaries()
   registerIpcHandlers()
   createWindow()

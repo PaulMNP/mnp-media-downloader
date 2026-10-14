@@ -2,13 +2,7 @@ import { create } from 'zustand'
 import { api, type DownloadItem, type AppSettings } from '../types'
 import { detectPlatform } from '../lib/platform'
 
-const HISTORY_LIMIT = 500
 const LEGACY_KEY = 'mnp-download-history'
-
-// History lives in the app's settings file (main process), not browser storage
-function saveHistory(history: DownloadItem[]) {
-  api.saveHistory(history.slice(0, HISTORY_LIMIT)).catch(console.error)
-}
 
 interface DownloadsStore {
   queue: DownloadItem[]
@@ -37,47 +31,50 @@ export const useDownloadsStore = create<DownloadsStore>((set, get) => ({
     }))
   },
 
+  // History is saved by the main process one entry at a time, never by
+  // writing this window's whole list, so a window that hasn't loaded history
+  // yet (or a second window) can't wipe it. The main process then sends the
+  // full list back through onHistoryChanged.
   moveToHistory: (id) => {
     const item = get().queue.find((i) => i.id === id)
     if (!item) return
-    set((state) => {
-      const history = [{ ...item, completedAt: Date.now() }, ...state.history.filter((h) => h.id !== id)]
-      saveHistory(history)
-      return { queue: state.queue.filter((i) => i.id !== id), history }
-    })
+    const entry = { ...item, completedAt: Date.now() }
+    set((state) => ({
+      queue: state.queue.filter((i) => i.id !== id),
+      history: [entry, ...state.history.filter((h) => h.id !== id)]
+    }))
+    api.addHistory(entry).catch(console.error)
   },
 
-  removeFromHistory: (id) =>
-    set((state) => {
-      const history = state.history.filter((h) => h.id !== id)
-      saveHistory(history)
-      return { history }
-    }),
+  removeFromHistory: (id) => {
+    set((state) => ({ history: state.history.filter((h) => h.id !== id) }))
+    api.removeHistory(id).catch(console.error)
+  },
 
   setSettings: (settings) => set({ settings }),
 
   clearHistory: () => {
-    saveHistory([])
     set({ history: [] })
+    api.clearHistory().catch(console.error)
   }
 }))
 
 if (typeof window !== 'undefined' && api) {
-  api.getHistory().then((saved) => {
-    let history = saved || []
+  api.onHistoryChanged((history) => useDownloadsStore.setState({ history }))
+
+  api.getHistory().then(async (saved) => {
+    useDownloadsStore.setState({ history: saved || [] })
     // One-time move of history kept in browser storage by older versions
     try {
       const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY) || '[]') as DownloadItem[]
       if (legacy.length) {
-        const ids = new Set(history.map((h) => h.id))
-        history = [...history, ...legacy.filter((h) => !ids.has(h.id))].sort((a, b) => (b.completedAt || b.addedAt) - (a.completedAt || a.addedAt))
-        saveHistory(history)
+        const oldestFirst = [...legacy].sort((a, b) => (a.completedAt || a.addedAt) - (b.completedAt || b.addedAt))
+        for (const entry of oldestFirst) await api.addHistory(entry)
         localStorage.removeItem(LEGACY_KEY)
       }
     } catch {
       // ignore unreadable legacy data
     }
-    useDownloadsStore.setState({ history })
   })
 
   // Downloads started from the menu bar icon

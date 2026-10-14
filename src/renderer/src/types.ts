@@ -75,7 +75,10 @@ export interface ElectronAPI {
   saveSettings: (s: Partial<AppSettings>) => Promise<{ success: boolean }>
   selectFolder: () => Promise<string | null>
   getHistory: () => Promise<DownloadItem[]>
-  saveHistory: (h: DownloadItem[]) => Promise<void>
+  addHistory: (entry: DownloadItem) => Promise<DownloadItem[]>
+  removeHistory: (id: string) => Promise<DownloadItem[]>
+  clearHistory: () => Promise<DownloadItem[]>
+  onHistoryChanged: (cb: (history: DownloadItem[]) => void) => void
   onDownloadAdded: (cb: (data: DownloadRequest) => void) => void
   onDownloadProgress: (cb: (data: any) => void) => void
   onDownloadComplete: (cb: (data: any) => void) => void

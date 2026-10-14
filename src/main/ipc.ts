@@ -1,6 +1,6 @@
-import { ipcMain, dialog, shell, clipboard } from 'electron'
+import { BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron'
 import { addToQueue, cancelDownload, fetchInfo, getYtdlpVersion, updateYtdlp } from './downloader'
-import { getSettings, saveSettings, getValue, setValue } from './settings'
+import { getSettings, saveSettings, getValue, addHistory, removeHistory, clearHistory } from './settings'
 
 export function registerIpcHandlers(): void {
   ipcMain.handle('download:fetch-info', async (_event, url: string, playlist: boolean) => {
@@ -34,7 +34,17 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('history:get', async () => getValue('history'))
 
-  ipcMain.handle('history:save', async (_event, history: unknown[]) => setValue('history', history))
+  // Every change is broadcast so all windows show the same list
+  const broadcast = (history: unknown[]) => {
+    BrowserWindow.getAllWindows().forEach((w) => !w.isDestroyed() && w.webContents.send('history:changed', history))
+    return history
+  }
+
+  ipcMain.handle('history:add', async (_event, entry: { id: string }) => broadcast(await addHistory(entry)))
+
+  ipcMain.handle('history:remove', async (_event, id: string) => broadcast(await removeHistory(id)))
+
+  ipcMain.handle('history:clear', async () => broadcast(await clearHistory()))
 
   ipcMain.handle('settings:get', async () => {
     return getSettings()

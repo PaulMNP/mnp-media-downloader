@@ -46,7 +46,15 @@ const api = {
 
   getHistory: () => ipcRenderer.invoke('history:get'),
 
-  saveHistory: (history: unknown[]) => ipcRenderer.invoke('history:save', history),
+  addHistory: (entry: unknown) => ipcRenderer.invoke('history:add', entry),
+
+  removeHistory: (id: string) => ipcRenderer.invoke('history:remove', id),
+
+  clearHistory: () => ipcRenderer.invoke('history:clear'),
+
+  onHistoryChanged: (cb: (history: unknown[]) => void) => {
+    ipcRenderer.on('history:changed', (_event, history) => cb(history))
+  },
 
   onDownloadAdded: (cb: (data: unknown) => void) => {
     ipcRenderer.on('download:added', (_event, data) => cb(data))

@@ -60,3 +60,27 @@ export async function getValue<K extends 'lastYtdlpUpdate' | 'history'>(key: K):
 export async function setValue<K extends 'lastYtdlpUpdate' | 'history'>(key: K, value: StoreShape[K]): Promise<void> {
   ;(await getStore()).set(key, value)
 }
+
+// History is only ever changed here, one entry at a time, reading the file
+// fresh each time. The window never overwrites the whole list, so a window
+// that hasn't loaded history yet can't wipe it.
+const HISTORY_LIMIT = 500
+type Entry = { id: string }
+
+export async function addHistory(entry: Entry): Promise<unknown[]> {
+  const history = ((await getValue('history')) as Entry[]).filter((h) => h.id !== entry.id)
+  const next = [entry, ...history].slice(0, HISTORY_LIMIT)
+  await setValue('history', next)
+  return next
+}
+
+export async function removeHistory(id: string): Promise<unknown[]> {
+  const next = ((await getValue('history')) as Entry[]).filter((h) => h.id !== id)
+  await setValue('history', next)
+  return next
+}
+
+export async function clearHistory(): Promise<unknown[]> {
+  await setValue('history', [])
+  return []
+}

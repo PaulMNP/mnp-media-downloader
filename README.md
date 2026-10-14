@@ -54,7 +54,7 @@ Hundreds of other sites work too, since the app is built on [yt-dlp](https://git
 
 ## Installing
 
-1. Open `MNP Media Downloader-<version>-arm64.dmg`.
+1. Download the latest `.dmg` from the [Releases page](https://github.com/PaulMNP/mnp-media-downloader/releases/latest) and open it.
 2. Drag **MNP Media Downloader** into **Applications**.
 3. Open it from Applications or Spotlight.
 

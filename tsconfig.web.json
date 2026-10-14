@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "target": "ESNext",
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "paths": {
+      "@renderer/*": ["./src/renderer/src/*"]
+    },
+    "types": ["node"]
+  },
+  "include": [
+    "src/renderer/**/*"
+  ]
+}

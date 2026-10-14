@@ -1,7 +1,8 @@
 {
   "name": "mnp-media-downloader",
   "version": "1.0.0",
-  "description": "Download videos and audio from social media",
+  "private": true,
+  "description": "A Mac app for downloading videos and audio from YouTube, TikTok, Instagram, Facebook, X and more.",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "bash scripts/fetch-binaries.sh && electron-vite dev",
@@ -10,9 +11,8 @@
     "dist": "bash scripts/fetch-binaries.sh && electron-vite build && electron-builder --mac --arm64",
     "fetch-binaries": "bash scripts/fetch-binaries.sh"
   },
-  "keywords": [],
-  "author": "MNP",
-  "license": "ISC",
+  "author": "PaulMNP",
+  "license": "UNLICENSED",
   "dependencies": {
     "electron-store": "^11.0.2",
     "react": "^19.3.0",
@@ -28,7 +28,6 @@
     "electron": "^44.5.1",
     "electron-builder": "^26.0.0",
     "electron-vite": "^5.0.0",
-    "ffmpeg-static": "^5.3.0",
     "postcss": "^8.5.29",
     "tailwindcss": "^3.4.19",
     "typescript": "^7.0.2",
@@ -67,7 +66,17 @@
       {
         "from": "resources/tray",
         "to": "tray"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
       }
-    ]
+    ],
+    "copyright": "Copyright © 2026 PaulMNP. All rights reserved."
+  },
+  "homepage": "https://github.com/PaulMNP/mnp-media-downloader",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PaulMNP/mnp-media-downloader.git"
   }
 }

@@ -7,7 +7,8 @@ import { autoUpdateYtdlp, queueFromClipboard } from './downloader'
 // Keep using the original data folder (settings + history). Without this,
 // Electron would pick a folder from productName, which an older, unrelated
 // app with the same name already uses.
-app.setPath('userData', join(app.getPath('appData'), 'mnp-media-downloader'))
+// MNP_USER_DATA lets you run with a separate, empty data folder (testing, screenshots).
+app.setPath('userData', process.env.MNP_USER_DATA || join(app.getPath('appData'), 'mnp-media-downloader'))
 
 let tray: Tray | null = null
 

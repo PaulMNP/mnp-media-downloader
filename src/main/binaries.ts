@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { execFile } from 'child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync } from 'fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, statSync } from 'fs'
 import { join } from 'path'
 
 // yt-dlp and ffmpeg ship inside the app (resources/bin). On first launch they
@@ -33,7 +33,13 @@ export function installBinaries(): void {
   for (const name of Object.keys(ENTRIES) as Name[]) {
     const { copy, exe } = ENTRIES[name]
     const source = join(bundledDir(), copy)
-    if (existsSync(join(dir, exe)) || !existsSync(source)) continue
+    if (!existsSync(source)) continue
+    if (existsSync(join(dir, exe))) {
+      // yt-dlp updates itself in place, so keep it. ffmpeg is replaced when
+      // the app ships a different build.
+      if (name === 'yt-dlp' || statSync(join(dir, exe)).size === statSync(source).size) continue
+      rmSync(join(dir, copy), { recursive: true, force: true })
+    }
     cpSync(source, join(dir, copy), { recursive: true })
     chmodSync(join(dir, exe), 0o755)
     execFile('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', join(dir, copy)], () => {

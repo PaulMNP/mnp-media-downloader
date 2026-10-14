@@ -12,6 +12,7 @@ const ffmpeg = () => binPath('ffmpeg')
 // Markers we ask yt-dlp to print so we can parse its output reliably
 const TITLE_MARK = '__MNP_TITLE__'
 const FILE_MARK = '__MNP_FILE__'
+const THUMB_MARK = '__MNP_THUMB__'
 
 export interface DownloadRequest {
   id: string
@@ -103,6 +104,7 @@ async function buildArgs(item: DownloadRequest): Promise<string[]> {
     '--embed-metadata',
     item.playlist ? '--yes-playlist' : '--no-playlist',
     '-O', `before_dl:${TITLE_MARK}%(title)s`,
+    '-O', `before_dl:${THUMB_MARK}%(thumbnail|)s`,
     '-O', `after_move:${FILE_MARK}%(filepath)s`,
     '-o', `${outDir}/${nameTemplate}`,
     ...titleArgs(item.url)
@@ -240,6 +242,12 @@ function startDownloadProcess(item: QueueItem, args: string[]) {
     if (line.startsWith(TITLE_MARK)) {
       const title = line.slice(TITLE_MARK.length)
       sendToRenderer('download:progress', { id: item.id, title: item.playlist ? undefined : title, currentItem: title })
+      return
+    }
+    if (line.startsWith(THUMB_MARK)) {
+      // Lets the queue show a thumbnail even if Download was clicked before the preview loaded
+      const thumbnail = line.slice(THUMB_MARK.length)
+      if (thumbnail) sendToRenderer('download:progress', { id: item.id, thumbnail })
       return
     }
     if (line.startsWith(FILE_MARK)) {

@@ -15,10 +15,21 @@ if [ ! -x resources/bin/yt-dlp_macos/yt-dlp_macos ]; then
   chmod +x resources/bin/yt-dlp_macos/yt-dlp_macos
 fi
 
+# Static GPL build (no --enable-nonfree, so it may be redistributed) from
+# https://ffmpeg.martin-riedl.de. Includes the VideoToolbox H.264 encoder.
 if [ ! -x resources/bin/ffmpeg ]; then
-  echo "Copying ffmpeg from ffmpeg-static…"
-  cp node_modules/ffmpeg-static/ffmpeg resources/bin/ffmpeg
+  echo "Downloading ffmpeg…"
+  tmp=$(mktemp -d)
+  curl -fL --progress-bar -o "$tmp/ffmpeg.zip" https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip
+  unzip -q -o "$tmp/ffmpeg.zip" -d "$tmp"
+  mv "$tmp/ffmpeg" resources/bin/ffmpeg
   chmod +x resources/bin/ffmpeg
+fi
+
+# Refuse to bundle an ffmpeg that can't legally be redistributed
+if resources/bin/ffmpeg -hide_banner -version | grep -q -- "--enable-nonfree"; then
+  echo "resources/bin/ffmpeg was built with --enable-nonfree and can't be redistributed. Delete it and run again." >&2
+  exit 1
 fi
 
 resources/bin/yt-dlp_macos/yt-dlp_macos --version

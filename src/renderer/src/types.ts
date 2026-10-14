@@ -16,6 +16,8 @@ export interface DownloadItem {
   quality: string
   isAudioOnly: boolean
   playlist?: boolean
+  clipStart?: string
+  clipEnd?: string
   playlistIndex?: number
   playlistCount?: number
   currentItem?: string
@@ -33,6 +35,8 @@ export interface DownloadRequest {
   isAudioOnly: boolean
   outputDir: string
   playlist?: boolean
+  clipStart?: string
+  clipEnd?: string
 }
 
 export interface AppSettings {
@@ -42,6 +46,9 @@ export interface AppSettings {
   defaultFormat: string
   cookiesBrowser: string
   convertMp4: boolean
+  embedSubs: boolean
+  notify: boolean
+  autoUpdate: boolean
 }
 
 export interface MediaInfo {
@@ -67,6 +74,9 @@ export interface ElectronAPI {
   getSettings: () => Promise<AppSettings>
   saveSettings: (s: Partial<AppSettings>) => Promise<{ success: boolean }>
   selectFolder: () => Promise<string | null>
+  getHistory: () => Promise<DownloadItem[]>
+  saveHistory: (h: DownloadItem[]) => Promise<void>
+  onDownloadAdded: (cb: (data: DownloadRequest) => void) => void
   onDownloadProgress: (cb: (data: any) => void) => void
   onDownloadComplete: (cb: (data: any) => void) => void
   onDownloadError: (cb: (data: any) => void) => void

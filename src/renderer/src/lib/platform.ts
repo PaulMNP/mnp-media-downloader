@@ -54,3 +54,17 @@ export function timeAgo(ts: number): string {
   const d = Math.floor(h / 24)
   return d < 7 ? `${d}d ago` : new Date(ts).toLocaleDateString()
 }
+
+// Pull every link out of pasted text. Pasting several lines into a text box
+// glues them together, so split on each new "http(s)://" as well as whitespace.
+export function extractUrls(text: string): string[] {
+  const found = text.match(/https?:\/\/.+?(?=https?:\/\/|\s|$)/g) || []
+  return Array.from(new Set(found.map((u) => u.trim()).filter(isUrl)))
+}
+
+// "1:30" / "90" / "1:02:03" -> valid time, or '' if empty; null if invalid
+export function parseTime(text: string): string | null {
+  const t = text.trim()
+  if (!t) return ''
+  return /^(\d+:)?(\d{1,2}:)?\d+(\.\d+)?$/.test(t) ? t : null
+}

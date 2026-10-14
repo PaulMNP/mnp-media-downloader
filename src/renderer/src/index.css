@@ -34,7 +34,7 @@ body {
 input, select, button, textarea { font: inherit; color: inherit; }
 input, textarea { user-select: text; }
 input:focus, select:focus, textarea:focus, button:focus { outline: none; }
-button:focus-visible, input:focus-visible, select:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+button:focus-visible, select:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
 
 .mono { font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
 .drag { -webkit-app-region: drag; }

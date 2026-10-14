@@ -1,23 +1,13 @@
 import { create } from 'zustand'
 import { api, type DownloadItem, type AppSettings } from '../types'
+import { detectPlatform } from '../lib/platform'
 
-const HISTORY_KEY = 'mnp-download-history'
-const HISTORY_LIMIT = 300
+const HISTORY_LIMIT = 500
+const LEGACY_KEY = 'mnp-download-history'
 
-function loadHistory(): DownloadItem[] {
-  try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') as DownloadItem[]
-  } catch {
-    return []
-  }
-}
-
+// History lives in the app's settings file (main process), not browser storage
 function saveHistory(history: DownloadItem[]) {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, HISTORY_LIMIT)))
-  } catch {
-    // ignore
-  }
+  api.saveHistory(history.slice(0, HISTORY_LIMIT)).catch(console.error)
 }
 
 interface DownloadsStore {
@@ -34,7 +24,7 @@ interface DownloadsStore {
 
 export const useDownloadsStore = create<DownloadsStore>((set, get) => ({
   queue: [],
-  history: loadHistory(),
+  history: [],
   settings: null,
 
   addToQueue: (item) => set((state) => ({ queue: [...state.queue, item] })),
@@ -73,6 +63,32 @@ export const useDownloadsStore = create<DownloadsStore>((set, get) => ({
 }))
 
 if (typeof window !== 'undefined' && api) {
+  api.getHistory().then((saved) => {
+    let history = saved || []
+    // One-time move of history kept in browser storage by older versions
+    try {
+      const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY) || '[]') as DownloadItem[]
+      if (legacy.length) {
+        const ids = new Set(history.map((h) => h.id))
+        history = [...history, ...legacy.filter((h) => !ids.has(h.id))].sort((a, b) => (b.completedAt || b.addedAt) - (a.completedAt || a.addedAt))
+        saveHistory(history)
+        localStorage.removeItem(LEGACY_KEY)
+      }
+    } catch {
+      // ignore unreadable legacy data
+    }
+    useDownloadsStore.setState({ history })
+  })
+
+  // Downloads started from the menu bar icon
+  api.onDownloadAdded((req) => {
+    useDownloadsStore.getState().addToQueue({
+      id: req.id, url: req.url, title: req.url, platform: detectPlatform(req.url).label,
+      status: 'queued', progress: 0, format: req.format, quality: req.quality,
+      isAudioOnly: req.isAudioOnly, addedAt: Date.now()
+    })
+  })
+
   api.onDownloadProgress(({ id, ...updates }) => {
     useDownloadsStore.getState().updateItem(id, updates)
   })

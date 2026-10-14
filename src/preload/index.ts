@@ -8,6 +8,8 @@ export interface DownloadRequest {
   isAudioOnly: boolean
   outputDir: string
   playlist?: boolean
+  clipStart?: string
+  clipEnd?: string
 }
 
 export interface AppSettings {
@@ -41,6 +43,14 @@ const api = {
   saveSettings: (settings: Partial<AppSettings>) => ipcRenderer.invoke('settings:save', settings),
 
   selectFolder: () => ipcRenderer.invoke('folder:select'),
+
+  getHistory: () => ipcRenderer.invoke('history:get'),
+
+  saveHistory: (history: unknown[]) => ipcRenderer.invoke('history:save', history),
+
+  onDownloadAdded: (cb: (data: unknown) => void) => {
+    ipcRenderer.on('download:added', (_event, data) => cb(data))
+  },
 
   onDownloadProgress: (cb: (data: unknown) => void) => {
     ipcRenderer.on('download:progress', (_event, data) => cb(data))

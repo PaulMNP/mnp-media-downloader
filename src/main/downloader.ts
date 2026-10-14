@@ -1,20 +1,13 @@
 import { spawn, ChildProcess } from 'child_process'
 import { existsSync, mkdirSync, renameSync, unlinkSync } from 'fs'
 import { homedir } from 'os'
-import { BrowserWindow } from 'electron'
+import { binPath } from './binaries'
+import { BrowserWindow, Notification, clipboard } from 'electron'
 import { getSettings } from './settings'
 
-// Prefer the standalone binary (no Python dependency) over the Homebrew one
-const YTDLP_PATHS = [
-  `${homedir()}/bin/yt-dlp`,
-  '/opt/homebrew/bin/yt-dlp',
-  '/usr/local/bin/yt-dlp'
-]
-const FFMPEG_PATHS = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']
-const FFPROBE_PATHS = ['/opt/homebrew/bin/ffprobe', '/usr/local/bin/ffprobe']
-const YTDLP = YTDLP_PATHS.find(p => existsSync(p)) || '/opt/homebrew/bin/yt-dlp'
-const FFMPEG = FFMPEG_PATHS.find(p => existsSync(p)) || '/opt/homebrew/bin/ffmpeg'
-const FFPROBE = FFPROBE_PATHS.find(p => existsSync(p)) || '/opt/homebrew/bin/ffprobe'
+// Bundled binaries, copied to Application Support on first launch (see binaries.ts)
+const ytdlp = () => binPath('yt-dlp')
+const ffmpeg = () => binPath('ffmpeg')
 
 // Markers we ask yt-dlp to print so we can parse its output reliably
 const TITLE_MARK = '__MNP_TITLE__'
@@ -28,7 +21,11 @@ export interface DownloadRequest {
   isAudioOnly: boolean
   outputDir: string
   playlist?: boolean
+  clipStart?: string
+  clipEnd?: string
   convertMp4?: boolean
+  embedSubs?: boolean
+  notify?: boolean
 }
 
 interface QueueItem extends DownloadRequest {
@@ -81,7 +78,7 @@ const HEIGHTS: Record<string, string> = { '4k': '2160', '1440p': '1440', '1080p'
 // Args shared by every yt-dlp call (info lookups and downloads)
 async function commonArgs(): Promise<string[]> {
   const settings = await getSettings()
-  const args = ['--no-warnings', '--ffmpeg-location', FFMPEG]
+  const args = ['--no-warnings', '--ffmpeg-location', ffmpeg()]
   if (settings.cookiesBrowser && settings.cookiesBrowser !== 'none') {
     args.push('--cookies-from-browser', settings.cookiesBrowser)
   }
@@ -127,6 +124,15 @@ async function buildArgs(item: DownloadRequest): Promise<string[]> {
     sort.unshift(h ? `res:${h}` : 'res')
     args.push('-f', 'bv*+ba/b', '-S', sort.join(','))
     args.push('--merge-output-format', ext, '--remux-video', ext)
+    if (item.embedSubs) {
+      // Creator-made subtitles only (not auto-generated), built into the video
+      args.push('--write-subs', '--sub-langs', 'all,-live_chat', '--embed-subs')
+    }
+  }
+
+  // Only download part of the video, e.g. 1:30 to 2:00
+  if (item.clipStart || item.clipEnd) {
+    args.push('--download-sections', `*${item.clipStart || '0'}-${item.clipEnd || 'inf'}`, '--force-keyframes-at-cuts')
   }
 
   args.push(item.url)
@@ -158,7 +164,8 @@ function friendlyError(raw: string): string {
   if (r.includes('unsupported url')) return 'This site or type of link isn\'t supported.'
   if (r.includes('http error 403') || r.includes('http error 429'))
     return 'The site blocked the download. Try Settings → "Check for updates", or turn on browser login.'
-  if (r.includes('no video') || r.includes('no media') || r.includes('there is no video')) return 'There\'s no video or audio in this post.'
+  if (r.includes('no video') || r.includes('no media') || r.includes('there is no video'))
+    return 'There\'s no video or audio in this post. It may only have text, images or a link.'
   if (r.includes('unable to download') || r.includes('timed out') || r.includes('network')) return `Couldn't reach the site: ${msg}`
   return msg || 'Download failed'
 }
@@ -168,6 +175,7 @@ function run(cmd: string, args: string[]): Promise<{ code: number; out: string }
     const proc = spawn(cmd, args)
     let out = ''
     proc.stdout.on('data', (d: Buffer) => (out += d.toString()))
+    proc.stderr.on('data', (d: Buffer) => (out += d.toString()))
     proc.on('close', (code) => resolve({ code: code ?? 1, out }))
     proc.on('error', () => resolve({ code: 1, out }))
   })
@@ -177,13 +185,14 @@ function run(cmd: string, args: string[]): Promise<{ code: number; out: string }
 // and iPhones can't play. Re-encode those to H.264 with the hardware encoder.
 async function ensurePlayableMp4(file: string): Promise<void> {
   if (!file.toLowerCase().endsWith('.mp4') || !existsSync(file)) return
-  const probe = await run(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', file])
-  const codec = probe.out.trim()
+  // ffmpeg -i prints stream info (to stderr) and exits; read the video codec from it
+  const probe = await run(ffmpeg(), ['-hide_banner', '-i', file])
+  const codec = probe.out.match(/Stream #0:\d+[^:]*: Video: (\w+)/)?.[1]
   if (!codec || codec === 'h264' || codec === 'hevc') return
   const tmp = file.replace(/\.mp4$/i, '.converting.mp4')
-  const res = await run(FFMPEG, [
+  const res = await run(ffmpeg(), [
     '-v', 'error', '-y', '-i', file,
-    '-map', '0', '-c:v', 'h264_videotoolbox', '-q:v', '65', '-tag:v', 'avc1',
+    '-map', '0', '-c:s', 'copy', '-c:v', 'h264_videotoolbox', '-q:v', '65', '-tag:v', 'avc1',
     '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', tmp
   ])
   if (res.code === 0 && existsSync(tmp)) {
@@ -193,9 +202,25 @@ async function ensurePlayableMp4(file: string): Promise<void> {
   }
 }
 
+// Show a macOS notification when the app isn't in front
+function notifyDone(item: QueueItem, files: string[]) {
+  if (!item.notify || !Notification.isSupported()) return
+  if (BrowserWindow.getAllWindows().some((w) => w.isFocused())) return
+  const last = files[files.length - 1] || ''
+  const name = last.split('/').pop()?.replace(/ \[[^\]]+\]\.\w+$/, '') || 'Download'
+  const n = new Notification({
+    title: files.length > 1 ? `Downloaded ${files.length} files` : 'Download finished',
+    body: name
+  })
+  n.on('click', () => {
+    if (last) import('electron').then(({ shell }) => shell.showItemInFolder(last))
+  })
+  n.show()
+}
+
 function startDownloadProcess(item: QueueItem, args: string[]) {
   item.status = 'downloading'
-  const proc = spawn(YTDLP, args)
+  const proc = spawn(ytdlp(), args)
   active.set(item.id, proc)
 
   let stderrBuffer = ''
@@ -283,6 +308,7 @@ function startDownloadProcess(item: QueueItem, args: string[]) {
         outputPath: files[files.length - 1],
         filesDone: files.length
       })
+      notifyDone(item, files)
     } else {
       const raw = stderrBuffer.split('\n').filter((l) => l.includes('ERROR:')).pop()
         || stderrBuffer.trim().split('\n').pop() || `yt-dlp exited with code ${code}`
@@ -314,7 +340,7 @@ async function processQueue() {
 export async function addToQueue(item: DownloadRequest): Promise<void> {
   const settings = await getSettings()
   maxConcurrent = settings.maxConcurrent
-  queue.push({ ...item, convertMp4: settings.convertMp4, status: 'queued' })
+  queue.push({ ...item, convertMp4: settings.convertMp4, embedSubs: settings.embedSubs, notify: settings.notify, status: 'queued' })
   await processQueue()
 }
 
@@ -334,7 +360,7 @@ export function cancelDownload(id: string): void {
 
 function runYtdlp(args: string[], timeoutMs = 60000): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(YTDLP, args)
+    const proc = spawn(ytdlp(), args)
     let out = ''
     let err = ''
     const timer = setTimeout(() => proc.kill('SIGTERM'), timeoutMs)
@@ -375,10 +401,44 @@ export async function fetchInfo(url: string, playlist = false): Promise<MediaInf
 }
 
 export function getYtdlpVersion(): Promise<string> {
-  return runYtdlp(['--version'], 15000).then((v) => v.trim())
+  return runYtdlp(['--version'], 30000).then((v) => v.trim())
 }
 
 export async function updateYtdlp(): Promise<string> {
   const out = await runYtdlp(['-U'], 180000)
   return out.trim().split('\n').pop() || 'Done'
+}
+
+// Start a download that didn't come from the window (menu bar icon).
+// The renderer is told so it can show the item in its queue.
+export async function queueFromClipboard(): Promise<string | null> {
+  const url = (await clipboard.readText()).trim()
+  if (!/^https?:\/\/\S+\.\S+/.test(url)) return null
+  const settings = await getSettings()
+  const audio = settings.defaultFormat === 'mp3' || settings.defaultFormat === 'm4a'
+  const request: DownloadRequest = {
+    id: `tray-${Date.now()}`,
+    url,
+    format: settings.defaultFormat as DownloadRequest['format'],
+    quality: audio ? 'best' : settings.defaultQuality,
+    isAudioOnly: audio,
+    outputDir: settings.outputDir
+  }
+  sendToRenderer('download:added', request)
+  await addToQueue(request)
+  return url
+}
+
+// Keep yt-dlp current: sites change often and old versions stop working
+export async function autoUpdateYtdlp(): Promise<void> {
+  const { getValue, setValue } = await import('./settings')
+  const settings = await getSettings()
+  const last = await getValue('lastYtdlpUpdate')
+  if (!settings.autoUpdate || Date.now() - last < 24 * 3600 * 1000) return
+  try {
+    await updateYtdlp()
+    await setValue('lastYtdlpUpdate', Date.now())
+  } catch {
+    // Offline or GitHub unreachable; try again next launch
+  }
 }

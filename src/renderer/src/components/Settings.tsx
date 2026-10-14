@@ -115,6 +115,18 @@ export default function Settings() {
         />
       </Row>
 
+      <Row title="Include subtitles" hint="Adds the subtitles the creator uploaded (not auto-generated ones) into the video, when there are any. Turn them on in your video player.">
+        <input type="checkbox" checked={settings.embedSubs} onChange={(e) => update({ embedSubs: e.target.checked })} className="w-4 h-4 accent-[var(--accent)]" />
+      </Row>
+
+      <Row title="Notify when finished" hint="Shows a notification when a download finishes while the app is in the background. Click it to open the file in Finder.">
+        <input type="checkbox" checked={settings.notify} onChange={(e) => update({ notify: e.target.checked })} className="w-4 h-4 accent-[var(--accent)]" />
+      </Row>
+
+      <Row title="Update the download engine automatically" hint="Checks for a new yt-dlp once a day when the app starts.">
+        <input type="checkbox" checked={settings.autoUpdate} onChange={(e) => update({ autoUpdate: e.target.checked })} className="w-4 h-4 accent-[var(--accent)]" />
+      </Row>
+
       <Row
         title="Download engine"
         hint={

@@ -4,10 +4,11 @@
   "description": "Download videos and audio from social media",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "bash scripts/fetch-binaries.sh && electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "dist": "electron-vite build && electron-builder --mac --arm64"
+    "dist": "bash scripts/fetch-binaries.sh && electron-vite build && electron-builder --mac --arm64",
+    "fetch-binaries": "bash scripts/fetch-binaries.sh"
   },
   "keywords": [],
   "author": "MNP",
@@ -27,6 +28,7 @@
     "electron": "^44.5.1",
     "electron-builder": "^26.0.0",
     "electron-vite": "^5.0.0",
+    "ffmpeg-static": "^5.3.0",
     "postcss": "^8.5.29",
     "tailwindcss": "^3.4.19",
     "typescript": "^7.0.2",
@@ -42,7 +44,8 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/ffmpeg-static/**"
     ],
     "mac": {
       "category": "public.app-category.utilities",
@@ -55,6 +58,16 @@
     },
     "dmg": {
       "title": "MNP Media Downloader"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin"
+      },
+      {
+        "from": "resources/tray",
+        "to": "tray"
+      }
+    ]
   }
 }

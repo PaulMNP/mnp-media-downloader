@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useDownloadsStore } from '../store/downloads'
 import { api, type DownloadItem, type MediaFormat, type MediaInfo } from '../types'
-import { detectPlatform, isUrl, formatDuration } from '../lib/platform'
+import { detectPlatform, isUrl, formatDuration, extractUrls, parseTime } from '../lib/platform'
 import { Segmented, Thumb, PlatformTag, Spinner } from './ui'
 
 type Kind = 'video' | 'audio'
@@ -19,11 +19,20 @@ export default function DownloadForm() {
   const [infoError, setInfoError] = useState('')
   const [loadingInfo, setLoadingInfo] = useState(false)
   const [clipboardUrl, setClipboardUrl] = useState('')
+  const [trim, setTrim] = useState(false)
+  const [clipStart, setClipStart] = useState('')
+  const [clipEnd, setClipEnd] = useState('')
+  const [dragging, setDragging] = useState(false)
   const lookupId = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const trimmed = url.trim()
-  const valid = isUrl(trimmed)
+  const links = extractUrls(url)
+  const batch = links.length > 1
+  const trimmed = batch ? '' : (links[0] || url.trim())
+  const valid = !batch && isUrl(trimmed)
+  const startTime = parseTime(clipStart)
+  const endTime = parseTime(clipEnd)
+  const badTime = trim && (startTime === null || endTime === null)
   const platform = detectPlatform(trimmed)
 
   // Apply saved defaults once settings load
@@ -73,30 +82,33 @@ export default function DownloadForm() {
 
   const reset = () => {
     setUrl('')
+    setTrim(false)
+    setClipStart('')
+    setClipEnd('')
     setInfo(null)
     setInfoError('')
     setPlaylist(false)
     inputRef.current?.focus()
   }
 
-  const submit = useCallback(async (overrideUrl?: string) => {
-    const target = (overrideUrl ?? trimmed).trim()
-    if (!isUrl(target) || detectPlatform(target).soundPage) return
+  const startOne = async (target: string, withInfo: boolean) => {
     const id = crypto.randomUUID()
     const audio = kind === 'audio'
-    const sameLink = target === trimmed
+    const clip = trim && !playlist && withInfo
     const item: DownloadItem = {
       id,
       url: target,
-      title: (sameLink && info?.title) || target,
+      title: (withInfo && info?.title) || target,
       platform: detectPlatform(target).label,
-      thumbnail: sameLink ? info?.thumbnail : undefined,
+      thumbnail: withInfo ? info?.thumbnail : undefined,
       status: 'queued',
       progress: 0,
       format,
       quality: audio ? 'best' : quality,
       isAudioOnly: audio,
-      playlist: sameLink && playlist,
+      playlist: withInfo && playlist,
+      clipStart: clip ? startTime || undefined : undefined,
+      clipEnd: clip ? endTime || undefined : undefined,
       addedAt: Date.now()
     }
     addToQueue(item)
@@ -107,10 +119,30 @@ export default function DownloadForm() {
       quality: item.quality,
       isAudioOnly: audio,
       outputDir: settings?.outputDir || '~/Downloads',
-      playlist: item.playlist
+      playlist: item.playlist,
+      clipStart: item.clipStart,
+      clipEnd: item.clipEnd
     })
+  }
+
+  const submit = useCallback(async () => {
+    if (badTime) return
+    if (batch) {
+      for (const link of links.filter((l) => !detectPlatform(l).soundPage)) await startOne(link, false)
+      return reset()
+    }
+    if (!valid || platform.soundPage) return
+    await startOne(trimmed, true)
     reset()
-  }, [trimmed, kind, format, quality, playlist, info, settings])
+  }, [trimmed, links, batch, valid, kind, format, quality, playlist, info, settings, trim, startTime, endTime, badTime])
+
+  // Accept links dragged in from the browser
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    const text = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
+    if (text) setUrl(extractUrls(text).join(' ') || text.trim())
+  }
 
   // Only offer qualities the video actually has (plus the next step up)
   const maxHeight = info?.heights?.[0]
@@ -120,7 +152,12 @@ export default function DownloadForm() {
   ].slice(0, 6)
 
   return (
-    <section className="rounded-2xl bg-surface border border-line overflow-hidden">
+    <section
+      onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={onDrop}
+      className={`rounded-2xl bg-surface border overflow-hidden transition-colors ${dragging ? 'border-accent' : 'border-line'}`}
+    >
       {/* Paste field */}
       <div className="p-4 pb-3">
         <div className="relative">
@@ -130,7 +167,7 @@ export default function DownloadForm() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submit()}
-            placeholder="Paste a link from YouTube, TikTok, Instagram, X, Facebook…"
+            placeholder={dragging ? 'Drop the link here' : 'Paste or drop links from YouTube, TikTok, Instagram, X, Facebook…'}
             spellCheck={false}
             className="w-full h-12 pl-4 pr-28 rounded-xl bg-bg border border-line text-[15px] placeholder:text-faint focus:border-line-strong transition-colors"
           />
@@ -159,7 +196,41 @@ export default function DownloadForm() {
         )}
       </div>
 
-      {url && !valid && <p className="px-4 pb-3 -mt-1 text-xs text-danger">That doesn't look like a link. It should start with https://</p>}
+      {url && !valid && !batch && <p className="px-4 pb-3 -mt-1 text-xs text-danger">That doesn't look like a link. It should start with https://</p>}
+
+      {batch && (
+        <div className="px-4 pb-4">
+          <ul className="max-h-40 overflow-y-auto mb-3 rounded-lg bg-bg border border-line divide-y divide-line">
+            {links.map((l) => {
+              const p = detectPlatform(l)
+              return (
+                <li key={l} className="flex items-center gap-3 px-3 py-1.5 text-xs">
+                  <PlatformTag label={p.label} color={p.color} />
+                  <span className={`truncate mono ${p.soundPage ? 'text-faint line-through' : 'text-muted'}`}>{l}</span>
+                </li>
+              )
+            })}
+          </ul>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+            <Segmented value={kind} onChange={switchKind} options={[{ value: 'video', label: 'Video' }, { value: 'audio', label: 'Audio' }]} />
+            <Segmented
+              size="sm"
+              value={format}
+              onChange={setFormat}
+              options={kind === 'video'
+                ? [{ value: 'mp4', label: 'MP4' }, { value: 'webm', label: 'WebM' }]
+                : [{ value: 'mp3', label: 'MP3' }, { value: 'm4a', label: 'M4A' }]}
+            />
+            {kind === 'video' && (
+              <Segmented size="sm" value={quality} onChange={setQuality}
+                options={[{ value: 'best', label: 'Best' }, { value: '1080p', label: '1080p' }, { value: '720p', label: '720p' }, { value: '480p', label: '480p' }]} />
+            )}
+            <button onClick={() => submit()} className="ml-auto h-9 px-5 rounded-lg bg-accent text-white font-semibold hover:brightness-110 transition">
+              Download {links.filter((l) => !detectPlatform(l).soundPage).length} links
+            </button>
+          </div>
+        </div>
+      )}
 
       {valid && platform.soundPage && (
         <div className="mx-4 mb-4 p-3 rounded-lg bg-bg border border-line text-xs leading-relaxed">
@@ -209,9 +280,25 @@ export default function DownloadForm() {
                 Whole playlist
               </label>
             )}
+            {!playlist && (
+              <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
+                <input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} className="accent-[var(--accent)]" />
+                Trim
+              </label>
+            )}
+            {trim && !playlist && (
+              <span className="flex items-center gap-1.5 text-xs text-muted">
+                <input value={clipStart} onChange={(e) => setClipStart(e.target.value)} placeholder="0:00"
+                  className={`w-16 h-7 px-2 rounded-md bg-bg border mono ${startTime === null ? 'border-danger' : 'border-line'}`} />
+                to
+                <input value={clipEnd} onChange={(e) => setClipEnd(e.target.value)} placeholder={formatDuration(info?.duration) || 'end'}
+                  className={`w-16 h-7 px-2 rounded-md bg-bg border mono ${endTime === null ? 'border-danger' : 'border-line'}`} />
+              </span>
+            )}
             <button
               onClick={() => submit()}
-              className="ml-auto h-9 px-5 rounded-lg bg-accent text-white font-semibold hover:brightness-110 active:brightness-95 transition flex items-center gap-2"
+              disabled={badTime}
+              className="ml-auto h-9 px-5 rounded-lg bg-accent disabled:opacity-40 text-white font-semibold hover:brightness-110 active:brightness-95 transition flex items-center gap-2"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v9M4 7l4 4 4-4M2.5 14h11" /></svg>
               Download

@@ -34,6 +34,7 @@ function QueueRow({ item }: { item: DownloadItem }) {
           <PlatformTag label={platform.label} color={platform.color} />
           <span className="uppercase mono">{item.format}{!item.isAudioOnly && item.quality !== 'best' ? ` · ${item.quality}` : ''}</span>
           {item.playlist && item.playlistCount ? <span className="mono">{item.playlistIndex} of {item.playlistCount}</span> : null}
+          {(item.clipStart || item.clipEnd) && <span className="mono">{item.clipStart || '0:00'}–{item.clipEnd || 'end'}</span>}
           <span className="ml-auto mono">{statusText}{item.eta ? `  ·  ${item.eta} left` : ''}</span>
         </div>
         {item.error && <p className="mt-1 text-xs text-danger truncate">{item.error}</p>}

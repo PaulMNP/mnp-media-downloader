@@ -1,6 +1,6 @@
 import { ipcMain, dialog, shell, clipboard } from 'electron'
 import { addToQueue, cancelDownload, fetchInfo, getYtdlpVersion, updateYtdlp } from './downloader'
-import { getSettings, saveSettings } from './settings'
+import { getSettings, saveSettings, getValue, setValue } from './settings'
 
 export function registerIpcHandlers(): void {
   ipcMain.handle('download:fetch-info', async (_event, url: string, playlist: boolean) => {
@@ -31,6 +31,10 @@ export function registerIpcHandlers(): void {
     shell.showItemInFolder(filePath)
     return { success: true }
   })
+
+  ipcMain.handle('history:get', async () => getValue('history'))
+
+  ipcMain.handle('history:save', async (_event, history: unknown[]) => setValue('history', history))
 
   ipcMain.handle('settings:get', async () => {
     return getSettings()

@@ -126,7 +126,9 @@ async function buildArgs(item: DownloadRequest): Promise<string[]> {
     args.push('--merge-output-format', ext, '--remux-video', ext)
     if (item.embedSubs) {
       // Creator-made subtitles only (not auto-generated), built into the video
-      args.push('--write-subs', '--sub-langs', 'all,-live_chat', '--embed-subs')
+      // --embed-subs alone downloads, embeds, then deletes the .vtt files;
+      // adding --write-subs would leave them next to the video
+      args.push('--sub-langs', 'all,-live_chat', '--embed-subs')
     }
   }
 
@@ -147,7 +149,7 @@ function parseProgress(line: string): { percent: number; speed: string; eta: str
 }
 
 // Turn yt-dlp's raw error into something a person can act on
-function friendlyError(raw: string): string {
+function friendlyError(raw: string, url = ''): string {
   const msg = raw
     .replace(/^\s*ERROR:\s*/i, '')
     .replace(/^\[[^\]]+\]\s*/, '') // "[vimeo] "
@@ -156,6 +158,10 @@ function friendlyError(raw: string): string {
     .replace(/\s*(Use --cookies|See\s+https?:\/\/|Confirm you are on the latest).*$/is, '')
     .trim()
   const r = msg.toLowerCase()
+  // A post with only text, images or a link: yt-dlp either finds no video or
+  // follows the link to some other site and calls that unsupported
+  if (/(\/\/|\.)(x|twitter)\.com\//.test(url) && (r.includes('no video') || r.includes('unsupported url')))
+    return 'This X post has no video. It may only have text, images or a link.'
   if (r.includes('could not copy') || r.includes('could not find') && r.includes('cookies'))
     return 'Could not read that browser\'s login. Quit the browser and try again, or choose another browser in Settings.'
   if (r.includes('http error 404') || /\bnot found\b/.test(r)) return 'Nothing found at this link. Check that it\'s correct and the post is still up.'
@@ -312,7 +318,7 @@ function startDownloadProcess(item: QueueItem, args: string[]) {
     } else {
       const raw = stderrBuffer.split('\n').filter((l) => l.includes('ERROR:')).pop()
         || stderrBuffer.trim().split('\n').pop() || `yt-dlp exited with code ${code}`
-      sendToRenderer('download:error', { id: item.id, error: friendlyError(raw), status: 'error' })
+      sendToRenderer('download:error', { id: item.id, error: friendlyError(raw, item.url), status: 'error' })
     }
     finish()
   })
@@ -370,7 +376,7 @@ function runYtdlp(args: string[], timeoutMs = 60000): Promise<string> {
       clearTimeout(timer)
       if (code === 0) return resolve(out)
       const msg = err.split('\n').filter((l) => l.includes('ERROR:')).pop() || err.trim() || `yt-dlp exited with code ${code}`
-      reject(new Error(friendlyError(msg)))
+      reject(new Error(friendlyError(msg, args[args.length - 1])))
     })
     proc.on('error', (e) => {
       clearTimeout(timer)

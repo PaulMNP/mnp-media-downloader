@@ -1,6 +1,7 @@
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, execFile, ChildProcess } from 'child_process'
 import { existsSync, mkdirSync, renameSync, unlinkSync } from 'fs'
 import { homedir } from 'os'
+import { basename, join } from 'path'
 import { binPath } from './binaries'
 import { BrowserWindow, Notification, clipboard } from 'electron'
 import { getSettings } from './settings'
@@ -8,6 +9,12 @@ import { getSettings } from './settings'
 // Bundled binaries, copied to Application Support on first launch (see binaries.ts)
 const ytdlp = () => binPath('yt-dlp')
 const ffmpeg = () => binPath('ffmpeg')
+const isWin = process.platform === 'win32'
+// yt-dlp hands some downloads (trimmed clips, live streams) straight to
+// ffmpeg. The bundled Mac ffmpeg has no built-in list of trusted
+// certificates, so point it at the system's; otherwise those downloads fail
+// with "certificate verify failed". (Windows ffmpeg uses the system store.)
+const ytdlpEnv = isWin ? process.env : { ...process.env, SSL_CERT_FILE: '/etc/ssl/cert.pem' }
 
 // Markers we ask yt-dlp to print so we can parse its output reliably
 const TITLE_MARK = '__MNP_TITLE__'
@@ -74,12 +81,20 @@ function titleArgs(url: string): string[] {
     : []
 }
 
+// Some sites (e.g. Rumble) answer yt-dlp with "403 Forbidden" but let a
+// browser in. When that happens, try once more looking like Chrome.
+const IMPERSONATE = ['--impersonate', 'chrome']
+const blocked = (raw: string) => /HTTP Error 403/i.test(raw)
+
 const HEIGHTS: Record<string, string> = { '4k': '2160', '1440p': '1440', '1080p': '1080', '720p': '720', '480p': '480', '360p': '360' }
 
 // Args shared by every yt-dlp call (info lookups and downloads)
 async function commonArgs(): Promise<string[]> {
   const settings = await getSettings()
   const args = ['--no-warnings', '--ffmpeg-location', ffmpeg()]
+  // Windows would otherwise print titles and file paths in the old ANSI code
+  // page, garbling anything that isn't plain English
+  if (isWin) args.push('--encoding', 'utf-8')
   if (settings.cookiesBrowser && settings.cookiesBrowser !== 'none') {
     args.push('--cookies-from-browser', settings.cookiesBrowser)
   }
@@ -106,7 +121,7 @@ async function buildArgs(item: DownloadRequest): Promise<string[]> {
     '-O', `before_dl:${TITLE_MARK}%(title)s`,
     '-O', `before_dl:${THUMB_MARK}%(thumbnail|)s`,
     '-O', `after_move:${FILE_MARK}%(filepath)s`,
-    '-o', `${outDir}/${nameTemplate}`,
+    '-o', join(outDir, nameTemplate),
     ...titleArgs(item.url)
   ]
 
@@ -164,8 +179,14 @@ function friendlyError(raw: string, url = ''): string {
   // follows the link to some other site and calls that unsupported
   if (/(\/\/|\.)(x|twitter)\.com\//.test(url) && (r.includes('no video') || r.includes('unsupported url')))
     return 'This X post has no video. It may only have text, images or a link.'
+  // Chrome, Edge and Brave on Windows encrypt their logins so only the browser
+  // itself can read them; Firefox doesn't
+  if (r.includes('dpapi') || r.includes('app-bound') || (isWin && r.includes('could not copy') && r.includes('cookie')))
+    return 'Windows won\'t let other apps read Chrome, Edge or Brave logins. Choose Firefox in Settings → "Use browser login" and sign in to the site there.'
   if (r.includes('could not copy') || r.includes('could not find') && r.includes('cookies'))
     return 'Could not read that browser\'s login. Quit the browser and try again, or choose another browser in Settings.'
+  if (r.includes('cannot be partially downloaded'))
+    return 'This site doesn\'t allow downloading just part of a video. Clear the trim times to download the whole thing.'
   if (r.includes('http error 404') || /\bnot found\b/.test(r)) return 'Nothing found at this link. Check that it\'s correct and the post is still up.'
   if (/\blog(ged)?[ -]?in\b|\bsign in\b|\bprivate\b|\bage[- ]restrict|\byour age\b|\bmembers[- ]only\b|\brate[- ]?limit|\bcookies\b/.test(r))
     return 'This needs you to be logged in. Turn on Settings → "Use browser login" with a browser where you\'re signed in to the site.'
@@ -180,7 +201,7 @@ function friendlyError(raw: string, url = ''): string {
 
 function run(cmd: string, args: string[]): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, args)
+    const proc = spawn(cmd, args, { windowsHide: true })
     let out = ''
     proc.stdout.on('data', (d: Buffer) => (out += d.toString()))
     proc.stderr.on('data', (d: Buffer) => (out += d.toString()))
@@ -190,7 +211,11 @@ function run(cmd: string, args: string[]): Promise<{ code: number; out: string }
 }
 
 // Instagram and some other sites only serve VP9/AV1, which QuickTime, Photos
-// and iPhones can't play. Re-encode those to H.264 with the hardware encoder.
+// and iPhones can't play. Re-encode those to H.264 (hardware encoder on Mac).
+const H264 = isWin
+  ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p']
+  : ['-c:v', 'h264_videotoolbox', '-q:v', '65']
+
 async function ensurePlayableMp4(file: string): Promise<void> {
   if (!file.toLowerCase().endsWith('.mp4') || !existsSync(file)) return
   // ffmpeg -i prints stream info (to stderr) and exits; read the video codec from it
@@ -200,7 +225,7 @@ async function ensurePlayableMp4(file: string): Promise<void> {
   const tmp = file.replace(/\.mp4$/i, '.converting.mp4')
   const res = await run(ffmpeg(), [
     '-v', 'error', '-y', '-i', file,
-    '-map', '0', '-c:s', 'copy', '-c:v', 'h264_videotoolbox', '-q:v', '65', '-tag:v', 'avc1',
+    '-map', '0', '-c:s', 'copy', ...H264, '-tag:v', 'avc1',
     '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', tmp
   ])
   if (res.code === 0 && existsSync(tmp)) {
@@ -210,12 +235,12 @@ async function ensurePlayableMp4(file: string): Promise<void> {
   }
 }
 
-// Show a macOS notification when the app isn't in front
+// Show a notification when the app isn't in front
 function notifyDone(item: QueueItem, files: string[]) {
   if (!item.notify || !Notification.isSupported()) return
   if (BrowserWindow.getAllWindows().some((w) => w.isFocused())) return
   const last = files[files.length - 1] || ''
-  const name = last.split('/').pop()?.replace(/ \[[^\]]+\]\.\w+$/, '') || 'Download'
+  const name = basename(last).replace(/ \[[^\]]+\]\.\w+$/, '') || 'Download'
   const n = new Notification({
     title: files.length > 1 ? `Downloaded ${files.length} files` : 'Download finished',
     body: name
@@ -228,7 +253,7 @@ function notifyDone(item: QueueItem, files: string[]) {
 
 function startDownloadProcess(item: QueueItem, args: string[]) {
   item.status = 'downloading'
-  const proc = spawn(ytdlp(), args)
+  const proc = spawn(ytdlp(), args, { windowsHide: true, env: ytdlpEnv })
   active.set(item.id, proc)
 
   let stderrBuffer = ''
@@ -308,7 +333,7 @@ function startDownloadProcess(item: QueueItem, args: string[]) {
     } else if (code === 0 || (item.playlist && files.length > 0)) {
       // A playlist with a few unavailable entries still counts as done
       if (item.convertMp4 && !item.isAudioOnly && item.format === 'mp4') {
-        sendToRenderer('download:progress', { id: item.id, speed: 'Converting for QuickTime…', eta: '' })
+        sendToRenderer('download:progress', { id: item.id, speed: 'Converting to H.264…', eta: '' })
         for (const f of files) await ensurePlayableMp4(f)
       }
       if ((item.status as QueueItem['status']) === 'cancelled') {
@@ -326,6 +351,10 @@ function startDownloadProcess(item: QueueItem, args: string[]) {
     } else {
       const raw = stderrBuffer.split('\n').filter((l) => l.includes('ERROR:')).pop()
         || stderrBuffer.trim().split('\n').pop() || `yt-dlp exited with code ${code}`
+      if (blocked(raw) && files.length === 0 && !args.includes(IMPERSONATE[0])) {
+        active.delete(item.id)
+        return startDownloadProcess(item, [...IMPERSONATE, ...args])
+      }
       sendToRenderer('download:error', { id: item.id, error: friendlyError(raw, item.url), status: 'error' })
     }
     finish()
@@ -364,7 +393,7 @@ export function cancelDownload(id: string): void {
   if (queueItem) queueItem.status = 'cancelled'
 
   if (proc) {
-    proc.kill('SIGTERM')
+    stopProcess(proc)
   } else {
     const idx = queue.findIndex((q) => q.id === id)
     if (idx !== -1) queue.splice(idx, 1)
@@ -372,19 +401,26 @@ export function cancelDownload(id: string): void {
   }
 }
 
+// On Windows, killing yt-dlp leaves the ffmpeg it started running (and the
+// file locked), so end the whole process tree
+function stopProcess(proc: ChildProcess) {
+  if (isWin && proc.pid) execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {})
+  else proc.kill('SIGTERM')
+}
+
 function runYtdlp(args: string[], timeoutMs = 60000): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(ytdlp(), args)
+    const proc = spawn(ytdlp(), args, { windowsHide: true, env: ytdlpEnv })
     let out = ''
     let err = ''
-    const timer = setTimeout(() => proc.kill('SIGTERM'), timeoutMs)
+    const timer = setTimeout(() => stopProcess(proc), timeoutMs)
     proc.stdout.on('data', (d: Buffer) => (out += d.toString()))
     proc.stderr.on('data', (d: Buffer) => (err += d.toString()))
     proc.on('close', (code) => {
       clearTimeout(timer)
       if (code === 0) return resolve(out)
       const msg = err.split('\n').filter((l) => l.includes('ERROR:')).pop() || err.trim() || `yt-dlp exited with code ${code}`
-      reject(new Error(friendlyError(msg, args[args.length - 1])))
+      reject(Object.assign(new Error(friendlyError(msg, args[args.length - 1])), { raw: msg }))
     })
     proc.on('error', (e) => {
       clearTimeout(timer)
@@ -396,7 +432,12 @@ function runYtdlp(args: string[], timeoutMs = 60000): Promise<string> {
 // Look up title, thumbnail and available resolutions before downloading
 export async function fetchInfo(url: string, playlist = false): Promise<MediaInfo> {
   const args = [...(await commonArgs()), '-J', playlist ? '--flat-playlist' : '--no-playlist', url]
-  const info = JSON.parse(await runYtdlp(args))
+  const info = JSON.parse(
+    await runYtdlp(args).catch((e) => {
+      if (!blocked(e.raw || '')) throw e
+      return runYtdlp([...IMPERSONATE, ...args])
+    })
+  )
   const isPlaylist = info._type === 'playlist'
   const heights = Array.from(
     new Set<number>((info.formats || []).map((f: { height?: number }) => f.height).filter((h: unknown): h is number => typeof h === 'number' && h > 0))

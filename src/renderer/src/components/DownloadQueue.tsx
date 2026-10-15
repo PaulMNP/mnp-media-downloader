@@ -1,6 +1,6 @@
 import React from 'react'
 import { useDownloadsStore } from '../store/downloads'
-import { api, type DownloadItem } from '../types'
+import { api, MOD, type DownloadItem } from '../types'
 import { detectPlatform } from '../lib/platform'
 import { Thumb, PlatformTag, IconButton } from './ui'
 
@@ -57,7 +57,7 @@ export default function DownloadQueue() {
       <div className="py-14 text-center">
         <p className="text-muted">Nothing downloading.</p>
         <p className="text-faint text-xs mt-1">
-          Copy a link anywhere, come back here and press Paste, or ⌘V then Enter.
+          Copy a link anywhere, come back here and press Paste, or {MOD}V then Enter.
           {done > 0 && (done === 1 ? ' 1 finished download is in History.' : ` ${done} finished downloads are in History.`)}
         </p>
       </div>

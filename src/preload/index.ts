@@ -22,6 +22,8 @@ export interface AppSettings {
 }
 
 const api = {
+  platform: process.platform,
+
   fetchInfo: (url: string, playlist = false) => ipcRenderer.invoke('download:fetch-info', url, playlist),
 
   getYtdlpVersion: () => ipcRenderer.invoke('ytdlp:version'),

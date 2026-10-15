@@ -4,19 +4,27 @@ import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, statSync } from 'fs'
 import { join } from 'path'
 
 // yt-dlp and ffmpeg ship inside the app (resources/bin). On first launch they
-// are copied to ~/Library/Application Support/<app>/bin, where yt-dlp can
-// update itself and macOS quarantine flags can be cleared.
+// are copied to ~/Library/Application Support/<app>/bin (%APPDATA%\<app>\bin
+// on Windows), where yt-dlp can update itself and macOS quarantine flags can
+// be cleared.
 //
 // yt-dlp is the unpacked "onedir" build (a folder with an _internal dir): it
 // starts in ~0.3s, while the single-file build takes ~12s on every run.
-const ENTRIES = {
-  'yt-dlp': { copy: 'yt-dlp_macos', exe: join('yt-dlp_macos', 'yt-dlp_macos') },
-  ffmpeg: { copy: 'ffmpeg', exe: 'ffmpeg' }
-} as const
+const isWin = process.platform === 'win32'
+const ENTRIES = isWin
+  ? {
+      'yt-dlp': { copy: 'yt-dlp_win', exe: join('yt-dlp_win', 'yt-dlp.exe') },
+      ffmpeg: { copy: 'ffmpeg.exe', exe: 'ffmpeg.exe' }
+    }
+  : {
+      'yt-dlp': { copy: 'yt-dlp_macos', exe: join('yt-dlp_macos', 'yt-dlp_macos') },
+      ffmpeg: { copy: 'ffmpeg', exe: 'ffmpeg' }
+    }
 type Name = keyof typeof ENTRIES
 
 function bundledDir(): string {
-  return app.isPackaged ? join(process.resourcesPath, 'bin') : join(app.getAppPath(), 'resources', 'bin')
+  if (app.isPackaged) return join(process.resourcesPath, 'bin')
+  return join(app.getAppPath(), 'resources', isWin ? 'bin-win' : 'bin')
 }
 
 function userDir(): string {
@@ -41,11 +49,14 @@ export function installBinaries(): void {
       rmSync(join(dir, copy), { recursive: true, force: true })
     }
     cpSync(source, join(dir, copy), { recursive: true })
-    chmodSync(join(dir, exe), 0o755)
-    execFile('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', join(dir, copy)], () => {
-      // Run once now so macOS's one-time security scan (~10s) doesn't
-      // happen during the first real download
-      execFile(join(dir, exe), name === 'ffmpeg' ? ['-version'] : ['--version'], () => {})
-    })
+    // Run once now so the system's one-time security scan (~10s on macOS,
+    // Defender on Windows) doesn't happen during the first real download
+    const warmUp = () => execFile(join(dir, exe), name === 'ffmpeg' ? ['-version'] : ['--version'], { windowsHide: true }, () => {})
+    if (isWin) {
+      warmUp()
+    } else {
+      chmodSync(join(dir, exe), 0o755)
+      execFile('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', join(dir, copy)], warmUp)
+    }
   }
 }

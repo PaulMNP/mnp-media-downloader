@@ -43,7 +43,11 @@ async function getStore(): Promise<Store> {
 
 export async function getSettings(): Promise<AppSettings> {
   const store = await getStore()
-  return Object.fromEntries(KEYS.map((k) => [k, store.get(k, defaultSettings[k])])) as unknown as AppSettings
+  const settings = Object.fromEntries(KEYS.map((k) => [k, store.get(k, defaultSettings[k])])) as unknown as AppSettings
+  // Arc was offered in earlier versions but yt-dlp can't read its cookies,
+  // so every download failed with it selected
+  if (settings.cookiesBrowser === 'arc') settings.cookiesBrowser = 'none'
+  return settings
 }
 
 export async function saveSettings(settings: Partial<AppSettings>): Promise<void> {

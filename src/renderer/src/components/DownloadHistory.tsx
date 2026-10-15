@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useDownloadsStore } from '../store/downloads'
-import { api, type DownloadItem } from '../types'
+import { api, FILE_MANAGER, type DownloadItem } from '../types'
 import { detectPlatform, timeAgo } from '../lib/platform'
 import { Thumb, PlatformTag, IconButton } from './ui'
 
@@ -41,7 +41,7 @@ function HistoryRow({ item }: { item: DownloadItem }) {
             <IconButton title="Open" onClick={() => api.openFile(item.outputPath!)}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5z" /></svg>
             </IconButton>
-            <IconButton title="Show in Finder" onClick={() => api.showInFolder(item.outputPath!)}>
+            <IconButton title={`Show in ${FILE_MANAGER}`} onClick={() => api.showInFolder(item.outputPath!)}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M1.5 4.5a1 1 0 011-1h3.5l1.5 1.5h6a1 1 0 011 1v6.5a1 1 0 01-1 1h-11a1 1 0 01-1-1z" /></svg>
             </IconButton>
           </>

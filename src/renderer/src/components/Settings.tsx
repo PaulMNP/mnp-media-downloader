@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useDownloadsStore } from '../store/downloads'
-import { api, type AppSettings } from '../types'
+import { api, isWin, FILE_MANAGER, type AppSettings } from '../types'
 import { Segmented, Spinner } from './ui'
 
 function Row({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {
@@ -90,22 +90,23 @@ export default function Settings() {
 
       <Row
         title="Use browser login"
-        hint="Needed for private, age-restricted or login-only posts, and helps when Instagram, Facebook, TikTok or Vimeo block downloads. Uses the cookies of a browser where you're logged in. macOS may ask for your password the first time."
+        hint={`Needed for private, age-restricted or login-only posts, and helps when Instagram, Facebook, TikTok or Vimeo block downloads. Uses the cookies of a browser where you're logged in. ${isWin ? 'On Windows, use Firefox: Chrome, Edge and Brave don\'t let other apps read their logins.' : 'macOS may ask for your password the first time.'}`}
       >
         <select value={settings.cookiesBrowser} onChange={(e) => update({ cookiesBrowser: e.target.value })} className={selectCls}>
           <option value="none">Off</option>
-          <option value="chrome">Chrome</option>
-          <option value="safari">Safari</option>
           <option value="firefox">Firefox</option>
-          <option value="brave">Brave</option>
+          <option value="chrome">Chrome</option>
+          {!isWin && <option value="safari">Safari</option>}
           <option value="edge">Edge</option>
-          <option value="arc">Arc</option>
+          <option value="brave">Brave</option>
+          <option value="opera">Opera</option>
+          <option value="vivaldi">Vivaldi</option>
         </select>
       </Row>
 
       <Row
         title="Make MP4s play everywhere"
-        hint="Some sites (like Instagram) send VP9 video, which QuickTime, Photos and iPhone can't play. This converts it to H.264 after downloading."
+        hint={`Some sites (like Instagram) send VP9 video, which ${isWin ? 'many players, TVs and phones' : 'QuickTime, Photos and iPhone'} can't play. This converts it to H.264 after downloading.`}
       >
         <input
           type="checkbox"
@@ -119,7 +120,7 @@ export default function Settings() {
         <input type="checkbox" checked={settings.embedSubs} onChange={(e) => update({ embedSubs: e.target.checked })} className="w-4 h-4 accent-[var(--accent)]" />
       </Row>
 
-      <Row title="Notify when finished" hint="Shows a notification when a download finishes while the app is in the background. Click it to open the file in Finder.">
+      <Row title="Notify when finished" hint={`Shows a notification when a download finishes while the app is in the background. Click it to open the file in ${FILE_MANAGER}.`}>
         <input type="checkbox" checked={settings.notify} onChange={(e) => update({ notify: e.target.checked })} className="w-4 h-4 accent-[var(--accent)]" />
       </Row>
 

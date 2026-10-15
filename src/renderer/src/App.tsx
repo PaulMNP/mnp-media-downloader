@@ -4,7 +4,7 @@ import DownloadQueue from './components/DownloadQueue'
 import DownloadHistory from './components/DownloadHistory'
 import Settings from './components/Settings'
 import { useDownloadsStore } from './store/downloads'
-import { api } from './types'
+import { api, isWin } from './types'
 
 type Tab = 'downloads' | 'history' | 'settings'
 
@@ -16,10 +16,10 @@ export default function App() {
     api.getSettings().then((s) => s && setSettings(s)).catch(console.error)
   }, [setSettings])
 
-  // ⌘1/⌘2/⌘3 switch tabs, ⌘, opens settings
+  // ⌘1/⌘2/⌘3 switch tabs, ⌘, opens settings (Ctrl on Windows)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey) return
+      if (!(isWin ? e.ctrlKey : e.metaKey)) return
       const map: Record<string, Tab> = { '1': 'downloads', '2': 'history', '3': 'settings', ',': 'settings' }
       if (map[e.key]) { e.preventDefault(); setTab(map[e.key]) }
     }
@@ -36,8 +36,9 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-bg">
-      {/* Title bar: leaves room for the macOS traffic lights and is draggable */}
-      <header className="drag flex-shrink-0 h-[52px] pl-[84px] pr-4 flex items-center gap-6 border-b border-line">
+      {/* Title bar: leaves room for the macOS traffic lights (left) or the
+          Windows window buttons (right) and is draggable */}
+      <header className={`drag flex-shrink-0 h-[52px] ${isWin ? 'pl-4 pr-[150px]' : 'pl-[84px] pr-4'} flex items-center gap-6 border-b border-line`}>
         <div className="flex items-center gap-2">
           <span className={`w-2.5 h-2.5 rounded-full bg-accent ${active ? 'rec-dot' : 'opacity-40'}`} />
           <span className="font-semibold tracking-tight">MNP</span>

@@ -5,3 +5,4 @@ resources/bin/
 .DS_Store
 *.log
 *.tsbuildinfo
+resources/bin-win/

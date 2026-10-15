@@ -2,14 +2,15 @@
   "name": "mnp-media-downloader",
   "version": "1.0.0",
   "private": true,
-  "description": "A Mac app for downloading videos and audio from YouTube, TikTok, Instagram, Facebook, X and more.",
+  "description": "A Mac and Windows app for downloading videos and audio from YouTube, TikTok, Instagram, Facebook, X and more.",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "bash scripts/fetch-binaries.sh && electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "dist": "bash scripts/fetch-binaries.sh && electron-vite build && electron-builder --mac --arm64",
-    "fetch-binaries": "bash scripts/fetch-binaries.sh"
+    "fetch-binaries": "bash scripts/fetch-binaries.sh",
+    "dist:win": "bash scripts/fetch-binaries.sh win && electron-vite build && electron-builder --win --x64"
   },
   "author": "PaulMNP",
   "license": "UNLICENSED",
@@ -53,16 +54,18 @@
         "dmg",
         "dir"
       ],
-      "identity": null
+      "identity": null,
+      "extraResources": [
+        {
+          "from": "resources/bin",
+          "to": "bin"
+        }
+      ]
     },
     "dmg": {
       "title": "MNP Media Downloader"
     },
     "extraResources": [
-      {
-        "from": "resources/bin",
-        "to": "bin"
-      },
       {
         "from": "resources/tray",
         "to": "tray"
@@ -72,7 +75,30 @@
         "to": "THIRD_PARTY_NOTICES.md"
       }
     ],
-    "copyright": "Copyright © 2026 PaulMNP. All rights reserved."
+    "copyright": "Copyright © 2026 PaulMNP. All rights reserved.",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "extraResources": [
+        {
+          "from": "resources/bin-win",
+          "to": "bin"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "MNP Media Downloader",
+      "artifactName": "MNP-Media-Downloader-Setup-${version}-x64.${ext}"
+    }
   },
   "homepage": "https://github.com/PaulMNP/mnp-media-downloader",
   "repository": {

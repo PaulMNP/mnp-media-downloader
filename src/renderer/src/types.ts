@@ -63,6 +63,7 @@ export interface MediaInfo {
 }
 
 export interface ElectronAPI {
+  platform: string
   fetchInfo: (url: string, playlist?: boolean) => Promise<MediaInfo>
   getYtdlpVersion: () => Promise<string>
   updateYtdlp: () => Promise<string>
@@ -86,3 +87,8 @@ export interface ElectronAPI {
 }
 
 export const api = (window as unknown as { electronAPI: ElectronAPI }).electronAPI
+
+// Mac and Windows differ in shortcut key and file manager name
+export const isWin = api.platform === 'win32'
+export const MOD = isWin ? 'Ctrl+' : '⌘'
+export const FILE_MANAGER = isWin ? 'File Explorer' : 'Finder'

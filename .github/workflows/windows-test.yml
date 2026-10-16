@@ -21,7 +21,7 @@ jobs:
 
       - name: Download yt-dlp and FFmpeg for Windows
         shell: bash
-        run: bash scripts/fetch-binaries.sh win
+        run: bash -x scripts/fetch-binaries.sh win
 
       - name: Build installer
         run: |

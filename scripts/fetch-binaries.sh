@@ -40,7 +40,7 @@ if [ "$target" = win ]; then
     unzip -q -o -j "$tmp/ffmpeg.zip" '*/bin/ffmpeg.exe' -d "$dir"
   fi
   check_ffmpeg "$dir/ffmpeg.exe"
-  LC_ALL=C grep -ao 'ffmpeg version [^ ]*' "$dir/ffmpeg.exe" | head -1
+  ls -l "$dir" "$dir/yt-dlp_win/yt-dlp.exe"
   exit 0
 fi
 

@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell } from
 import { join } from 'path'
 import { registerIpcHandlers } from './ipc'
 import { installBinaries } from './binaries'
-import { autoUpdateYtdlp, queueFromClipboard } from './downloader'
+import { autoUpdateYtdlp, queueFromClipboard, stopAll } from './downloader'
 
 // Keep using the original data folder (settings + history). Without this,
 // Electron would pick a folder from productName, which an older, unrelated
@@ -114,6 +114,8 @@ app.whenReady().then(() => {
     }
   })
 })
+
+app.on('before-quit', stopAll)
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

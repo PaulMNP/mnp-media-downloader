@@ -38,6 +38,9 @@ export interface DownloadRequest {
 
 interface QueueItem extends DownloadRequest {
   status: 'queued' | 'downloading' | 'complete' | 'error' | 'cancelled'
+  // Set when the site wouldn't let ffmpeg fetch just the trimmed part, so the
+  // whole file was downloaded and gets trimmed afterwards
+  trimAfter?: boolean
 }
 
 export interface MediaInfo {
@@ -235,6 +238,25 @@ async function ensurePlayableMp4(file: string): Promise<void> {
   }
 }
 
+// Cut a downloaded file to clipStart–clipEnd. MP4 video is re-encoded so the
+// cut lands exactly on the requested time; other files are cut without
+// re-encoding.
+async function trimFile(file: string, start?: string, end?: string): Promise<void> {
+  if (!existsSync(file)) return
+  const ext = file.slice(file.lastIndexOf('.'))
+  const tmp = file.slice(0, -ext.length) + '.trimming' + ext
+  const range = ['-ss', start || '0', ...(end ? ['-to', end] : [])]
+  const codecs = /\.mp4$/i.test(file)
+    ? ['-map', '0:v:0?', '-map', '0:a?', ...H264, '-tag:v', 'avc1', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart']
+    : ['-map', '0', '-c', 'copy']
+  const res = await run(ffmpeg(), ['-v', 'error', '-y', ...range, '-i', file, ...codecs, tmp])
+  if (res.code === 0 && existsSync(tmp)) {
+    renameSync(tmp, file)
+  } else if (existsSync(tmp)) {
+    unlinkSync(tmp)
+  }
+}
+
 // Show a notification when the app isn't in front
 function notifyDone(item: QueueItem, files: string[]) {
   if (!item.notify || !Notification.isSupported()) return
@@ -253,7 +275,7 @@ function notifyDone(item: QueueItem, files: string[]) {
 
 function startDownloadProcess(item: QueueItem, args: string[]) {
   item.status = 'downloading'
-  const proc = spawn(ytdlp(), args, { windowsHide: true, env: ytdlpEnv })
+  const proc = spawnYtdlp(args)
   active.set(item.id, proc)
 
   let stderrBuffer = ''
@@ -332,6 +354,10 @@ function startDownloadProcess(item: QueueItem, args: string[]) {
       sendToRenderer('download:error', { id: item.id, error: 'Download cancelled', status: 'cancelled' })
     } else if (code === 0 || (item.playlist && files.length > 0)) {
       // A playlist with a few unavailable entries still counts as done
+      if (item.trimAfter) {
+        sendToRenderer('download:progress', { id: item.id, speed: 'Trimming…', eta: '' })
+        for (const f of files) await trimFile(f, item.clipStart, item.clipEnd)
+      }
       if (item.convertMp4 && !item.isAudioOnly && item.format === 'mp4') {
         sendToRenderer('download:progress', { id: item.id, speed: 'Converting to H.264…', eta: '' })
         for (const f of files) await ensurePlayableMp4(f)
@@ -354,6 +380,16 @@ function startDownloadProcess(item: QueueItem, args: string[]) {
       if (blocked(raw) && files.length === 0 && !args.includes(IMPERSONATE[0])) {
         active.delete(item.id)
         return startDownloadProcess(item, [...IMPERSONATE, ...args])
+      }
+      // Trimming makes ffmpeg fetch just that part straight from the site,
+      // which some sites (e.g. Bluesky) don't allow. Download the whole file
+      // and trim it here instead.
+      const sections = args.indexOf('--download-sections')
+      if (sections !== -1 && /ffmpeg exited/i.test(raw) && files.length === 0) {
+        active.delete(item.id)
+        item.trimAfter = true
+        const whole = args.filter((a, i) => i !== sections && i !== sections + 1 && a !== '--force-keyframes-at-cuts')
+        return startDownloadProcess(item, whole)
       }
       sendToRenderer('download:error', { id: item.id, error: friendlyError(raw, item.url), status: 'error' })
     }
@@ -401,16 +437,33 @@ export function cancelDownload(id: string): void {
   }
 }
 
-// On Windows, killing yt-dlp leaves the ffmpeg it started running (and the
-// file locked), so end the whole process tree
+// Stopping only yt-dlp leaves the ffmpeg it started still downloading (and
+// on Windows, the file locked), so end the whole process tree. On Mac, yt-dlp
+// runs in its own process group (detached) so the group can be signalled.
 function stopProcess(proc: ChildProcess) {
-  if (isWin && proc.pid) execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {})
-  else proc.kill('SIGTERM')
+  if (!proc.pid) return
+  if (isWin) {
+    execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {})
+    return
+  }
+  try {
+    process.kill(-proc.pid, 'SIGTERM')
+  } catch {
+    proc.kill('SIGTERM')
+  }
+}
+
+const spawnYtdlp = (args: string[]) => spawn(ytdlp(), args, { windowsHide: true, env: ytdlpEnv, detached: !isWin })
+
+// Called when the app quits, so no downloads keep running without it
+export function stopAll(): void {
+  for (const item of queue) item.status = 'cancelled'
+  active.forEach(stopProcess)
 }
 
 function runYtdlp(args: string[], timeoutMs = 60000): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(ytdlp(), args, { windowsHide: true, env: ytdlpEnv })
+    const proc = spawnYtdlp(args)
     let out = ''
     let err = ''
     const timer = setTimeout(() => stopProcess(proc), timeoutMs)

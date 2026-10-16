@@ -6,3 +6,4 @@ resources/bin/
 *.log
 *.tsbuildinfo
 resources/bin-win/
+e2e-out/

@@ -35,6 +35,12 @@ const win = await app.firstWindow()
 await win.waitForLoadState('domcontentloaded')
 await win.waitForTimeout(2000)
 await win.screenshot({ path: join(out, '1-main.png') })
+// The page screenshot doesn't include what Windows draws on top (the
+// minimize/maximize/close buttons), so also capture the whole screen there
+if (isWin) {
+  const ps = `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $i=New-Object System.Drawing.Bitmap $b.Width,$b.Height; [System.Drawing.Graphics]::FromImage($i).CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); $i.Save('${join(out, '0-screen.png')}')`
+  try { execFileSync('powershell', ['-NoProfile', '-Command', ps]) } catch (e) { console.log('screen capture failed:', String(e).split('\n')[0]) }
+}
 
 // The app copies its bundled ffmpeg into the data folder on first launch
 const ffmpeg = join(dataDir, 'bin', isWin ? 'ffmpeg.exe' : 'ffmpeg')

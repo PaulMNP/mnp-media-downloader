@@ -21,7 +21,9 @@ jobs:
 
       - name: Download yt-dlp and FFmpeg for Windows
         shell: bash
-        run: bash -x scripts/fetch-binaries.sh win
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/fetch-binaries.sh win
 
       - name: Build installer
         run: |
@@ -49,6 +51,7 @@ jobs:
         shell: pwsh
         run: |
           $y = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'yt-dlp.exe' | Select-Object -First 1
+          if (-not $y) { $y = Get-Item resources\bin-win\yt-dlp_win\yt-dlp.exe }
           & $y.FullName --list-impersonate-targets
           & $y.FullName -v --impersonate chrome --simulate https://rumble.com/embed/v5pv5f 2>&1 | Select-Object -Last 15
           & $y.FullName --impersonate chrome --simulate https://www.rumble.com/ 2>&1 | Select-Object -Last 3

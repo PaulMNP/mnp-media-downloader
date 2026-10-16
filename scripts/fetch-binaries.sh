@@ -31,9 +31,17 @@ if [ "$target" = win ]; then
   # Static GPL build (no --enable-nonfree) from https://github.com/BtbN/FFmpeg-Builds,
   # newest release series. Includes libx264 for the H.264 conversion.
   if [ ! -f "$dir/ffmpeg.exe" ]; then
-    name=$(curl -fsSL https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest \
+    # Signed-in API requests aren't rate-limited the way anonymous ones from
+    # shared CI machines are
+    auth=()
+    if [ -n "${GITHUB_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GITHUB_TOKEN"); fi
+    name=$(curl -fsSL "${auth[@]+"${auth[@]}"}" https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest \
       | grep -o '"name": *"ffmpeg-n[0-9.]*-latest-win64-gpl-[0-9.]*\.zip"' \
       | sed 's/.*"\(ffmpeg-[^"]*\)"/\1/' | sort -V | tail -1)
+    if [ -z "$name" ]; then
+      echo "Couldn't find the latest FFmpeg build on GitHub (rate limited?). Try again later." >&2
+      exit 1
+    fi
     echo "Downloading ${name}…"
     tmp=$(mktemp -d)
     curl -fL --progress-bar -o "$tmp/ffmpeg.zip" "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$name"

@@ -110,9 +110,10 @@ await check('Bluesky video, trimmed to 0:01-0:04', { url: 'https://bsky.app/prof
 await check('Bandcamp track as MP3', { url: 'http://youtube-dl.bandcamp.com/track/youtube-dl-test-song', audio: true },
   (p) => (p.audio === 'mp3' ? '' : `got audio ${p.audio}`))
 
-// 4. A site that blocks yt-dlp until it retries as Chrome; title has non-English characters (｜)
-await check('Rumble (403 retry, special characters in title), trimmed', { url: 'https://rumble.com/embed/v5pv5f', trim: ['0:00', '0:08'] },
-  (p) => (p.video ? '' : 'no video stream'))
+// 4. A site that blocks yt-dlp until it retries as Chrome. Rumble blocks
+//    GitHub's servers outright, so this one is informational on CI.
+await check('Rumble (403 retry as Chrome), trimmed (blocked on CI servers)', { url: 'https://rumble.com/embed/v5pv5f', trim: ['0:00', '0:08'] },
+  (p) => (p.video ? '' : 'no video stream'), true)
 
 // 5. VP9 video gets converted to H.264. Served from a local web server so the
 //    test doesn't depend on Instagram.

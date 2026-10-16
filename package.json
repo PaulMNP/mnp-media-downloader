@@ -1,6 +1,6 @@
 {
   "name": "mnp-media-downloader",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "A Mac and Windows app for downloading videos and audio from YouTube, TikTok, Instagram, Facebook, X and more.",
   "main": "out/main/index.js",

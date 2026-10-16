@@ -46,16 +46,6 @@ jobs:
           npm i --no-save playwright-core@1.56.1
           node scripts/e2e.mjs "$env:APP_EXE" e2e-out
 
-      - name: Diagnose Rumble
-        if: always()
-        shell: pwsh
-        run: |
-          $y = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'yt-dlp.exe' | Select-Object -First 1
-          if (-not $y) { $y = Get-Item resources\bin-win\yt-dlp_win\yt-dlp.exe }
-          & $y.FullName --list-impersonate-targets
-          & $y.FullName -v --impersonate chrome --simulate https://rumble.com/embed/v5pv5f 2>&1 | Select-Object -Last 15
-          & $y.FullName --impersonate chrome --simulate https://www.rumble.com/ 2>&1 | Select-Object -Last 3
-
       - name: Upload screenshots and results
         if: always()
         uses: actions/upload-artifact@v4

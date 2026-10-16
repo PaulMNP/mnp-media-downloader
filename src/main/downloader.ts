@@ -20,6 +20,25 @@ const ytdlpEnv = isWin ? process.env : { ...process.env, SSL_CERT_FILE: '/etc/ss
 const TITLE_MARK = '__MNP_TITLE__'
 const FILE_MARK = '__MNP_FILE__'
 const THUMB_MARK = '__MNP_THUMB__'
+// Added to audio file names while downloading; removed once the file is done
+const AUDIO_MARK = '.mnp-audio'
+
+// "1:30" -> "1.30" (colons aren't allowed in Windows file names)
+const clipLabel = (time?: string) => (time || '').replace(/[^\d:.]/g, '').replace(/:/g, '.')
+
+// Give a finished audio file its real name, replacing an older copy
+function finalAudioName(path: string): string {
+  const i = path.lastIndexOf(AUDIO_MARK + '.')
+  if (i === -1 || !existsSync(path)) return path
+  const final = path.slice(0, i) + path.slice(i + AUDIO_MARK.length)
+  try {
+    if (existsSync(final)) unlinkSync(final)
+    renameSync(path, final)
+    return final
+  } catch {
+    return path
+  }
+}
 
 export interface DownloadRequest {
   id: string
@@ -108,9 +127,18 @@ async function buildArgs(item: DownloadRequest): Promise<string[]> {
   const outDir = resolveOutputDir(item.outputDir)
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 
-  const nameTemplate = item.playlist
-    ? '%(playlist_title|Playlist).100B/%(playlist_index|0)03d - %(title).150B [%(id)s].%(ext)s'
-    : '%(title).150B [%(id)s].%(ext)s'
+  const audioOnly = item.isAudioOnly || item.format === 'mp3' || item.format === 'm4a'
+  const base = item.playlist
+    ? '%(playlist_title|Playlist).100B/%(playlist_index|0)03d - %(title).150B [%(id)s]'
+    : '%(title).150B [%(id)s]'
+  // yt-dlp skips anything whose file name already exists, so a clip needs its
+  // own name: otherwise trimming a video downloaded earlier returns the whole
+  // file, and the whole video returns an earlier clip
+  const clip = item.clipStart || item.clipEnd ? ` (clip ${clipLabel(item.clipStart) || '0'}-${clipLabel(item.clipEnd) || 'end'})` : ''
+  // Audio is downloaded under a temporary name and renamed when done (see
+  // AUDIO_MARK). With the normal name, an existing "Title [id].mp4" counts as
+  // already downloaded, gets converted, and is then deleted as a leftover.
+  const nameTemplate = `${base}${clip}${audioOnly ? AUDIO_MARK : ''}.%(ext)s`
 
   const args = [
     ...(await commonArgs()),
@@ -127,8 +155,6 @@ async function buildArgs(item: DownloadRequest): Promise<string[]> {
     '-o', join(outDir, nameTemplate),
     ...titleArgs(item.url)
   ]
-
-  const audioOnly = item.isAudioOnly || item.format === 'mp3' || item.format === 'm4a'
 
   if (audioOnly) {
     args.push('-f', 'ba/b')
@@ -262,7 +288,7 @@ function notifyDone(item: QueueItem, files: string[]) {
   if (!item.notify || !Notification.isSupported()) return
   if (BrowserWindow.getAllWindows().some((w) => w.isFocused())) return
   const last = files[files.length - 1] || ''
-  const name = basename(last).replace(/ \[[^\]]+\]\.\w+$/, '') || 'Download'
+  const name = basename(last).replace(/ \[[^\]]+\]( \(clip [^)]*\))?\.\w+$/, '') || 'Download'
   const n = new Notification({
     title: files.length > 1 ? `Downloaded ${files.length} files` : 'Download finished',
     body: name
@@ -298,7 +324,7 @@ function startDownloadProcess(item: QueueItem, args: string[]) {
       return
     }
     if (line.startsWith(FILE_MARK)) {
-      const path = line.slice(FILE_MARK.length)
+      const path = finalAudioName(line.slice(FILE_MARK.length))
       files.push(path)
       sendToRenderer('download:progress', { id: item.id, outputPath: path, filesDone: files.length })
       return

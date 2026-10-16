@@ -127,13 +127,33 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.once('listening', r))
 await check('VP9 video converted to H.264', { url: `http://127.0.0.1:${server.address().port}/vp9-clip.mp4` },
   (p) => (p.video === 'h264' ? '' : `video is still ${p.video}`))
+
+// 6. The same video again as a clip and as an MP3 must each get their own
+//    file and leave the whole video alone (yt-dlp used to hand back the whole
+//    file for the clip, and delete the video after making the MP3)
+try {
+  const src = `http://127.0.0.1:${server.address().port}/vp9-clip.mp4`
+  const clip = await download({ url: `${src}?clip`, trim: ['0:01', '0:03'] })
+  const mp3 = await download({ url: `${src}?mp3`, audio: true })
+  const files = readdirSync(dlDir).filter((f) => f.startsWith('vp9-clip'))
+  const whole = files.find((f) => f.endsWith('].mp4'))
+  const problem = [
+    !whole && 'whole video is gone',
+    whole && Math.abs(probe(join(dlDir, whole)).seconds - 4) > 0.5 && 'whole video changed',
+    clip.status !== 'complete' ? `clip: ${clip.error || clip.status}` : Math.abs(probe(clip.outputPath).seconds - 2) > 0.5 && `clip is ${probe(clip.outputPath).seconds}s, expected 2s`,
+    mp3.status !== 'complete' ? `mp3: ${mp3.error || mp3.status}` : !mp3.outputPath.endsWith('].mp3') && `mp3 named ${mp3.outputPath}`
+  ].filter(Boolean).join('; ')
+  log({ name: 'Clip and MP3 of an already downloaded video', ok: !problem, detail: problem || files.join(' | ') })
+} catch (err) {
+  log({ name: 'Clip and MP3 of an already downloaded video', ok: false, detail: String(err).split('\n')[0] })
+}
 server.close()
 
-// 6. YouTube. GitHub's servers are often blocked by YouTube, so this one is informational.
+// 7. YouTube. GitHub's servers are often blocked by YouTube, so this one is informational.
 await check('YouTube, trimmed (may be blocked on CI servers)', { url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', trim: ['0:02', '0:06'] },
   (p) => (p.video ? '' : 'no video'), true)
 
-// 7. Cancel stops every process and leaves no locked files behind. A slow
+// 8. Cancel stops every process and leaves no locked files behind. A slow
 //    local server keeps the download running long enough to cancel it.
 try {
   const big = join(out, 'slow-source.mp4')

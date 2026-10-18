@@ -63,7 +63,8 @@
       ]
     },
     "dmg": {
-      "title": "MNP Media Downloader"
+      "title": "MNP Media Downloader",
+      "artifactName": "MNP-Media-Downloader-${version}-${arch}.${ext}"
     },
     "extraResources": [
       {

@@ -1,0 +1,164 @@
+# Builds the Mac and Windows apps on real Macs and Windows machines, installs
+# them, and runs scripts/e2e.mjs against them.
+#
+# Releasing: update "version" in package.json, add a "## <version>" section
+# to CHANGELOG.md, commit, then push a matching tag:
+#   git tag v1.2.0 && git push origin v1.2.0
+# When both apps pass their tests, the release is published with both
+# installers and notes from CHANGELOG.md.
+#
+# Run it from the Actions tab (or `gh workflow run build.yml`) to only build
+# and test, optionally making a draft release to check the release step.
+name: Build and release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      draft_release:
+        description: Also make a draft release (not public) to check the release step
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-15 # Apple Silicon
+    timeout-minutes: 40
+    outputs:
+      ytdlp: ${{ steps.versions.outputs.ytdlp }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Download yt-dlp and FFmpeg for Mac
+        run: bash scripts/fetch-binaries.sh
+
+      - id: versions
+        run: echo "ytdlp=$(resources/bin/yt-dlp_macos/yt-dlp_macos --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Build app and .dmg
+        run: |
+          npx electron-vite build
+          npx electron-builder --mac --arm64 --publish never
+
+      - name: Test the built app
+        run: |
+          npm i --no-save playwright-core@1.56.1
+          node scripts/e2e.mjs "dist/mac-arm64/MNP Media Downloader.app/Contents/MacOS/MNP Media Downloader" e2e-out
+
+      - name: Upload screenshots and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-mac
+          path: |
+            e2e-out/*.png
+            e2e-out/results.json
+
+      - name: Upload .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg
+          path: dist/*.dmg
+          retention-days: 14
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Download yt-dlp and FFmpeg for Windows
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/fetch-binaries.sh win
+
+      - name: Build installer
+        run: |
+          npx electron-vite build
+          npx electron-builder --win --x64 --publish never
+
+      - name: Install (silently, like double-clicking it)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\*Setup*.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'MNP Media Downloader.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'App not found after installing' }
+          "APP_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+          Write-Host "Installed to $($exe.FullName)"
+
+      - name: Test the installed app
+        shell: pwsh
+        run: |
+          npm i --no-save playwright-core@1.56.1
+          node scripts/e2e.mjs "$env:APP_EXE" e2e-out
+
+      - name: Upload screenshots and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-windows
+          path: |
+            e2e-out/*.png
+            e2e-out/results.json
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*Setup*.exe
+          retention-days: 14
+
+  release:
+    needs: [mac, windows]
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.draft_release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-dmg
+          path: assets
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: assets
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YTDLP: ${{ needs.mac.outputs.ytdlp }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          dmg=$(ls assets/*.dmg) exe=$(ls assets/*.exe)
+          case "$dmg $exe" in *"-$version-"*"-$version-"*) ;; *) echo "Built files don't match version $version: $dmg $exe"; exit 1 ;; esac
+          bash scripts/release-notes.sh "$version" "$YTDLP" "$dmg" "$exe" > notes.md
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+              echo "Tag $GITHUB_REF_NAME doesn't match package.json version $version"; exit 1
+            fi
+            gh release create "$GITHUB_REF_NAME" --verify-tag --latest \
+              --title "MNP Media Downloader $version" --notes-file notes.md "$dmg" "$exe"
+          else
+            gh release create "v$version-draft-$GITHUB_RUN_NUMBER" --draft --target "$GITHUB_SHA" \
+              --title "DRAFT TEST $version" --notes-file notes.md "$dmg" "$exe"
+          fi

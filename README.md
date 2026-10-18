@@ -117,6 +117,13 @@ npm run dist:win # build the Windows installer into dist/ (works on a Mac too)
 
 These commands first run `scripts/fetch-binaries.sh`, which downloads yt-dlp and a redistributable FFmpeg build into `resources/bin` (Mac) or `resources/bin-win` (Windows). Neither is committed to git.
 
+### Releasing
+
+1. Change `"version"` in `package.json` and add a `## <version>` section describing the changes to `CHANGELOG.md`.
+2. Commit, then push a matching tag: `git tag v1.2.0 && git push origin main v1.2.0`.
+
+GitHub Actions ([build.yml](.github/workflows/build.yml)) then builds the Mac app on a Mac and the Windows installer on Windows, and tests each one with `scripts/e2e.mjs`. If both pass, it publishes the release with both installers and notes from `CHANGELOG.md`. To build and test without releasing, run the workflow from the Actions tab.
+
 ## Responsible use
 
 This app is meant for saving content you have the right to download, such as your own uploads, content with a permissive license, or content that is in the public domain. Respect the terms of service of each site and the rights of creators. You are responsible for how you use the app.
